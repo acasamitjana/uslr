@@ -30,7 +30,7 @@ If a GPU is available, non-linear stream of the pipeline will run faster.
 
 ## Code updates
 
-10 September 2023:
+10 November 2023:
 - Initial commit and README file.
 
 
