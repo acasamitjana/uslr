@@ -149,7 +149,7 @@ def vol_resample_fast(ref_proxy, flo_proxy, proxyflow=None, mode='bilinear', dev
         KK3 = KK2 + FIELD[:, :, :, 2]
 
 
-        affine = torch.tensor(np.linalg.inv(flow_v2r) @ flow_v2r)
+        affine = torch.tensor(np.linalg.inv(target_v2r) @ flow_v2r)
         II4 = affine[0, 0] * II3 + affine[0, 1] * JJ3 + affine[0, 2] * KK3 + affine[0, 3]
         JJ4 = affine[1, 0] * II3 + affine[1, 1] * JJ3 + affine[1, 2] * KK3 + affine[1, 3]
         KK4 = affine[2, 0] * II3 + affine[2, 1] * JJ3 + affine[2, 2] * KK3 + affine[2, 3]
@@ -237,7 +237,6 @@ def pole_ladder(long_svf, mni_svf, steps=80):
 
 
     return u
-
 
 def svf_to_vox(proxysvf):
     svf_ras = np.array(proxysvf.dataobj)

@@ -15,6 +15,19 @@ import csv
 
 from utils.labels import *
 
+def create_derivative_dir(path, description):
+    if not os.path.exists(path): os.makedirs(path)
+    data_descr_path = os.path.join(path, 'dataset_description.json')
+
+    if not os.path.exists(data_descr_path):
+        data_descr = {}
+        data_descr['Name'] = os.path.basename(path)
+        data_descr['BIDSVersion'] = '1.0.2'
+        data_descr['GeneratedBy'] = [{'Name': os.path.basename(path)}]
+        data_descr['Description'] = description
+        json_object = json.dumps(data_descr, indent=4)
+        with open(data_descr_path, 'w') as outfile:
+            outfile.write(json_object)
 
 def write_json_derivatives(pixdim, volshape, filename, extra_kwargs={}):
     im_json = {
@@ -34,45 +47,6 @@ def write_json_derivatives(pixdim, volshape, filename, extra_kwargs={}):
     json_object = json.dumps(im_json, indent=4)
     with open(filename, 'w') as outfile:
         outfile.write(json_object)
-
-def get_bids_fileparts(file):
-    fileparts = basename(file).split('_')
-    fp_dict = {}
-    for fp in fileparts:
-        if fp == fileparts[-1]:
-            fp_dict['suffix'] = fp.split('.')[0]
-        else:
-            fp_dict[fp.split('-')[0]] = fp.split('-')[1]
-    return fp_dict
-
-def build_bids_fileame(fp_dict):
-
-    if 'sub' in fp_dict.keys():
-        sbj_id = fp_dict.get('sub')
-    else:
-        sbj_id = fp_dict.get('subject')
-
-    filename = 'sub-' + sbj_id
-
-    if 'ses' in fp_dict.keys():
-        filename += '_ses-' + fp_dict['ses']
-    elif 'session' in  fp_dict.keys():
-        filename += '_ses-' + fp_dict['session']
-
-    if 'space' in fp_dict.keys(): filename += '_space-' + fp_dict['space']
-    if 'task' in fp_dict.keys(): filename += '_task-' + fp_dict['task']
-
-    if 'acq' in fp_dict.keys():
-        filename += '_acq-' + fp_dict['acq']
-    elif 'acquisition' in fp_dict.keys():
-        filename += '_acq-' + fp_dict['acquisition']
-
-    if 'trc' in fp_dict.keys(): filename += '_trc-' + fp_dict['trc']
-    if 'run' in fp_dict.keys(): filename += '_run-' + fp_dict['run']
-    if 'desc' in fp_dict.keys(): filename += '_desc-' + fp_dict['desc']
-    if 'suffix' in fp_dict.keys(): filename += '_' + fp_dict['suffix']
-
-    return filename
 
 def create_results_dir(results_dir, subdirs=None):
     if subdirs is None:
@@ -156,7 +130,6 @@ def read_affine_matrix(path, full=False):
 
     else:
         return rotation_matrix, translation_vector
-
 
 def load_array_if_path(var, load_as_numpy=True):
     """If var is a string and load_as_numpy is True, this function loads the array writen at the path indicated by var.
@@ -579,26 +552,11 @@ def read_FS_volumes(file, labs=None):
 
     return fs_vols, etiv
 
-
 def get_float_vol(v):
     try:
         return float(v)
     except:
         return -4
-
-def write_volume_results(volume_dict, filepath, fieldnames=None, attach_overwrite='a'):
-    if fieldnames is None:
-        fieldnames = ['id', 't_var', 's_var'] + list(ASEG_APARC_ARR)
-
-    write_header = True if (not exists(filepath) or attach_overwrite == 'w') else False
-    with open(filepath, attach_overwrite) as csvfile:
-        csvwriter = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter='\t')
-        if write_header:
-            csvwriter.writeheader()
-        if isinstance(volume_dict, list):
-            csvwriter.writerows(volume_dict)
-        else:
-            csvwriter.writerow(volume_dict)
 
 def get_dataset_vols(subject_list, analysis_labels, analysis_keys, header_file, unique_dx=None, seg_scope='synthseg'):
     print('Reading volumes.', end=' ', flush=True)

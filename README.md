@@ -16,6 +16,10 @@ We use Synthseg, a learning-based functionality of freesurfer, for MRI segmentat
 **GPU (optional)**<br />
 If a GPU is available, non-linear stream of the pipeline will run faster.
 
+**Data**<br />
+Data needs to be organised following the BIDS protocol. Important! Make sure that
+if multiple T1w images are available, the difference is not in the _acquisition_
+entity (it can be in other, most often _run_, but also _desc_, _space_, etc. ). 
 ### Run the code
 - **Set-up configuration files** 
   - _setup.py_: create this file following the setup_example.py and according to your local machine and data directories. It contains the absolute paths to input data and the all the generated output registration paths. Here, one needs to set the rawdata directory as environmental variable:

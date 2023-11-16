@@ -1,17 +1,15 @@
-import pdb
 import time
-import warnings
 
 import numpy as np
 from scipy.special import softmax
 from scipy.ndimage import distance_transform_edt, gaussian_filter
 
 from utils.fn_utils import crop_label
-from utils.labels import POST_LUT, CLUSTER_DICT
+from utils.labels import SYNTHSEG_LUT, CLUSTER_DICT
 
 eps = np.finfo(float).eps
 
-def convert_posteriors_to_unified(seg, lut=POST_LUT):
+def convert_posteriors_to_unified(seg, lut=SYNTHSEG_LUT):
     '''
     Converts a Freesurfer or Synthseg segmentation to unified segmentation by jointly considering both hemispheres.
     :param seg: np.array
@@ -20,7 +18,7 @@ def convert_posteriors_to_unified(seg, lut=POST_LUT):
     out_seg = np.zeros(seg.shape[:-1] + (len(CLUSTER_DICT.keys()), ))
     for it_lab, (lab_str, lab_list) in enumerate(CLUSTER_DICT.items()):
         for lab in lab_list:
-            out_seg[..., it_lab] += seg[..., POST_LUT[lab]]
+            out_seg[..., it_lab] += seg[..., lut[lab]]
 
     out_seg = out_seg / (np.sum(out_seg, axis=-1, keepdims=True) + 1e-10)
     out_seg[np.isnan(out_seg)] = 0
@@ -40,40 +38,6 @@ def convert_to_unified(seg):
     out_seg = out_seg / np.sum(out_seg, axis=-1, keepdims=True)
 
     return out_seg
-
-def compute_distance_map(labelmap, soft_seg=True):
-    '''
-    Compute distance map for different labels.
-    :param labelmap: np.array
-    :param soft_seg: bool. If True, it applies the softmax to the output. Otherwise it will output distances.
-    :return:
-    '''
-    unique_labels = np.unique(labelmap)
-    distancemap = -200 * np.ones(labelmap.shape + (len(unique_labels),), dtype='float32')
-    # print('Working in label: ', end='', flush=True)
-    for it_ul, ul in enumerate(unique_labels):
-        # print(str(ul), end=', ', flush=True)
-
-        mask_label = labelmap == ul
-        bbox_label, crop_coord = crop_label(mask_label, margin=5)
-
-        d_in = (distance_transform_edt(bbox_label))
-        d_out = -distance_transform_edt(~bbox_label)
-        d = np.zeros_like(d_in)
-        d[bbox_label] = d_in[bbox_label]
-        d[~bbox_label] = d_out[~bbox_label]
-
-        distancemap[crop_coord[0][0]: crop_coord[0][1],
-                    crop_coord[1][0]: crop_coord[1][1],
-                    crop_coord[2][0]: crop_coord[2][1], it_ul] = d
-
-
-    if soft_seg:
-        prior_labels = softmax(distancemap, axis=-1)
-        # soft_labelmap = np.argmax(prior_labels, axis=-1).astype('uint16')
-        return prior_labels
-    else:
-        return distancemap
 
 def one_hot_encoding_with_gaussian(target, num_classes, categories=None, sigma=0.0):
     '''
@@ -104,7 +68,6 @@ def one_hot_encoding_with_gaussian(target, num_classes, categories=None, sigma=0
 
     else:
         return gaussian_filter(labels, sigma)# size of gaussian kernel is 4*sigma + 0.5 at each side and center=2.
-
 
 
 def get_dct_basis_functions(image_shape, smoothing_kernel_size):

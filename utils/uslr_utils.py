@@ -58,86 +58,9 @@ def initialize_graph_linear(pairwise_centroids, affine_filepath, pairwise_timepo
         proxy_reg = def_utils.vol_resample(ref_proxy, proxy_reg, mode='nearest')
         nib.save(proxy_reg, affine_filepath + '.nii.gz')
 
-def initialize_graph_nonlinear(pairwise_timepoints, Msubject, results_dir, filename,
-                               instance_refinement=True, epochs=10, grad_penalty=1, full_size=False):
-    from tensorflow.python import keras
-    import tensorflow as tf
-    tp_ref, tp_flo = pairwise_timepoints
+def initialize_graph_nonlinear(pairwise_modality, Msubject, results_dir, filename, instance_refinement=True,
+                               epochs=10, grad_penalty=1, full_size=False, int_resolution=2):
 
-    if isinstance(tp_ref, dict) and isinstance(tp_flo, dict):
-        ref_filepath = tp_ref['image']
-        flo_filepath = tp_flo['image']
-        ref_mask_filepath = tp_ref['mask']
-        flo_mask_filepath = tp_flo['mask']
-
-    else:
-        conditions_image_res = {'suffix': 'T1w', 'acquisition': '1', 'scope': 'sreg-lin', 'space': 'SUBJECT',
-                                'extension': '.nii.gz', 'run': '01'}
-        conditions_mask_res = {'suffix': 'mask', 'acquisition': '1', 'scope': 'sreg-lin', 'space': 'SUBJECT',
-                               'extension': '.nii.gz', 'run': '01'}
-
-        ref_filepath = join(tp_ref.data_dir['sreg-lin'], tp_ref.get_files(**conditions_image_res)[0])
-        flo_filepath = join(tp_flo.data_dir['sreg-lin'], tp_flo.get_files(**conditions_image_res)[0])
-
-        ref_mask_filepath = join(tp_ref.data_dir['sreg-lin'], tp_ref.get_files(**conditions_mask_res)[0])
-        flo_mask_filepath = join(tp_flo.data_dir['sreg-lin'], tp_flo.get_files(**conditions_mask_res)[0])
-
-    A, Aaff, Ah = io_utils.load_volume(synthmorph_utils.atlas_file, im_only=False, squeeze=True, dtype=None, aff_ref=None)
-    Amri = nib.Nifti1Image(A, Aaff)
-    Aaff = Aaff.astype('float32')
-
-    SVFaff_net = Aaff.copy()
-    for c in range(3):
-        SVFaff_net[:-1, c] = SVFaff_net[:-1, c] * 2
-
-    SVFaff_net[:-1, -1] = SVFaff_net[:-1, -1] - np.matmul(SVFaff_net[:-1, :-1], 0.5 * (np.array([0.5, 0.5, 0.5]) - 1))
-
-    Rlin, Raff, Rh = synthmorph_utils.compute_atlas_alignment(ref_filepath, ref_mask_filepath, Amri, Msubject)
-    Flin, Faff, Fh = synthmorph_utils.compute_atlas_alignment(flo_filepath, flo_mask_filepath, Amri, Msubject)
-
-
-    cnn = synthmorph_utils.VxmDenseOriginalSynthmorph.load(synthmorph_utils.path_model_registration)
-    svf1 = cnn.register(Flin.detach().numpy()[np.newaxis, ..., np.newaxis],
-                        Rlin.detach().numpy()[np.newaxis, ..., np.newaxis])
-
-    svf2 = cnn.register(Rlin.detach().numpy()[np.newaxis, ..., np.newaxis],
-                        Flin.detach().numpy()[np.newaxis, ..., np.newaxis])
-    svf = 0.5 * svf1 - 0.5 * svf2
-
-    if instance_refinement and grad_penalty > 0:
-        instance_model = synthmorph_utils.instance_register(Rlin.detach().numpy()[np.newaxis, ..., np.newaxis],
-                                                            Flin.detach().numpy()[np.newaxis, ..., np.newaxis], svf,
-                                                            inshape=A.shape, epochs=epochs, grad_penalty=grad_penalty)
-
-        svf = instance_model.references.flow_layer(Rlin.detach().numpy()[np.newaxis, ..., np.newaxis])
-        svf = svf.numpy()
-
-    # pdb.set_trace()
-    if full_size:
-        upscaler = keras.Sequential([synthmorph_utils.RescaleTransform(2)])
-        svf = upscaler(tf.convert_to_tensor(svf))
-        SVFaff_net = Aaff
-
-    SVFmri_net = nib.Nifti1Image(np.squeeze(svf), Msubject @ SVFaff_net)
-    nib.save(SVFmri_net, join(results_dir, filename + '.svf.nii.gz'))
-
-    if DEBUG:
-        integrator = keras.Sequential([synthmorph_utils.VecInt(method='ss', int_steps=7)])
-        upscaler = keras.Sequential([synthmorph_utils.RescaleTransform(2)])
-
-        warp_pos_small = integrator(tf.convert_to_tensor(svf))
-        f2r_field = np.squeeze(upscaler(warp_pos_small))
-        flow_mri = nib.Nifti1Image(f2r_field, (Msubject @ Aaff).astype('float32'))
-
-        refproxy = nib.load(ref_filepath)
-        floproxy = nib.load(flo_filepath)
-
-        t1w_reg = def_utils.vol_resample(refproxy, floproxy, proxyflow=flow_mri)
-        nib.save(t1w_reg, join(results_dir, filename + '.reg.nii.gz'))
-
-
-def initialize_graph_nonlinear_multimodal(pairwise_modality, Msubject, results_dir, filename, instance_refinement=True,
-                                          epochs=10, grad_penalty=1, full_size=False, int_resolution=2):
     from tensorflow.python import keras
     import tensorflow as tf
     mod_ref, mod_flo = pairwise_modality
@@ -187,20 +110,6 @@ def initialize_graph_nonlinear_multimodal(pairwise_modality, Msubject, results_d
 
     SVFmri_net = nib.Nifti1Image(np.squeeze(svf), Msubject @ SVFaff_net)
     nib.save(SVFmri_net, join(results_dir, filename + '.svf.nii.gz'))
-
-    if DEBUG:
-        integrator = keras.Sequential([synthmorph_utils.VecInt(method='ss', int_steps=7)])
-        upscaler = keras.Sequential([synthmorph_utils.RescaleTransform(2)])
-
-        warp_pos_small = integrator(tf.convert_to_tensor(svf))
-        f2r_field = np.squeeze(upscaler(warp_pos_small))
-        flow_mri = nib.Nifti1Image(f2r_field, (Msubject @ Aaff).astype('float32'))
-
-        refproxy = nib.load(ref_filepath)
-        floproxy = nib.load(flo_filepath)
-
-        t1w_reg = def_utils.vol_resample(refproxy, floproxy, proxyflow=flow_mri)
-        nib.save(t1w_reg, join(results_dir, filename + '.reg.nii.gz'))
 
 
 def create_template_space(linear_image_list):

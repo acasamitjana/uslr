@@ -90,6 +90,19 @@ def rescale_flow(flow_vol, aff, new_vox_size):
 
     return flow_vol, flow_aff
 
+def gaussian_smoothing_voxel_size(proxy, new_vox_size):
+    pixdim = np.sqrt(np.sum(proxy.affine * proxy.affine, axis=0))[:-1]
+    new_vox_size = np.array(new_vox_size)
+    factor = pixdim / new_vox_size
+    sigmas = 0.25 / factor
+    sigmas[factor > 1] = 0  # don't blur if upsampling
+
+    volume = np.array(proxy.dataobj)
+    if len(volume.shape) > 3:
+        sigmas = np.concatenate((sigmas, [0]))
+
+    return gaussian_filter(volume, sigmas)
+
 def rescale_voxel_size(volume, aff, new_vox_size, not_aliasing=False):
     """This function resizes the voxels of a volume to a new provided size, while adjusting the header to keep the RAS
     :param volume: a numpy array
@@ -152,7 +165,6 @@ def gaussian_antialiasing(volume, aff, new_voxel_size):
 
     return gaussian_filter(volume, sigmas)
 
-
 def get_rigid_params(matrix, proxyref, cog=None):
     ry = -np.asin(matrix[2, 0])
     rx = np.atan2(matrix[2, 1] / np.cos(ry), matrix[2, 2] / np.cos(ry))
@@ -186,6 +198,7 @@ def get_rigid_params(matrix, proxyref, cog=None):
     translation = T_trans[:3, 3]
 
     return angles, translation
+
 def one_hot_encoding(target, num_classes=None, categories=None):
     '''
 
@@ -312,7 +325,6 @@ def compute_centroids_ras(seg_file, labelfile):
 
     return refCOG, ok
 
-
 def compute_distance_map_nongrid(labelmap, sampling_grid, labels_lut=None):
     if labels_lut is None:
         labels_lut = {ul: it_ul for it_ul, ul in enumerate(np.unique(labelmap))}
@@ -357,8 +369,6 @@ def compute_distance_map_nongrid(labelmap, sampling_grid, labels_lut=None):
 
     return distancemap
 
-
-
 def compute_distance_map(labelmap, soft_seg=True, labels_lut=None):
     if labels_lut is None:
         labels_lut = {ul: it_ul for it_ul, ul in enumerate(np.unique(labelmap))}
@@ -390,8 +400,6 @@ def compute_distance_map(labelmap, soft_seg=True, labels_lut=None):
         distancemap = softmax(distancemap, axis=-1)
 
     return distancemap
-
-
 
 def compute_distance_map_crop(labelmap, soft_seg=True, labels_lut=None):
     if labels_lut is None:
