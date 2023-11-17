@@ -1,12 +1,11 @@
-import pdb
+from setup import *
+
 from os.path import exists, join, basename, dirname
 from os import makedirs
 import time
 from argparse import ArgumentParser
 from datetime import date, datetime
 import subprocess
-import json
-import shutil
 
 import bids
 import numpy as np
@@ -16,7 +15,6 @@ import nibabel as nib
 from src import uslr
 from utils.io_utils import write_json_derivatives
 from utils import synthmorph_utils
-from setup import *
 
 def process_subject(subject, bids_loader, cp_shape, force_flag=False):
     im_ent = {'scope': basename(DIR_PIPELINES['uslr-lin']), 'space': 'SUBJECT', 'acquisition': 1,
@@ -29,7 +27,7 @@ def process_subject(subject, bids_loader, cp_shape, force_flag=False):
         print('[warning] it has only 1 timepoint. Skipping.')
         return subject
 
-    dir_nonlin_subj = join(DIR_PIPELINES['uslr-lin'], 'sub-' + subject)
+    dir_nonlin_subj = join(DIR_PIPELINES['uslr-nonlin'], 'sub-' + subject)
     deformations_dir = join(dir_nonlin_subj, 'deformations')
 
     linear_template = {}
@@ -46,10 +44,9 @@ def process_subject(subject, bids_loader, cp_shape, force_flag=False):
         'time': datetime.now().strftime("%d/%m/%Y %H:%M:%S"),
         'cost': cost,
     }
-    write_json_derivatives([1, 1, 1], linear_template['image'].shape,
+    write_json_derivatives([1, 1, 1], nib.load(linear_template['image']).shape,
                            join(dir_nonlin_subj, 'sub-' + subject + '_desc-nonlinTemplate_anat.json'),
                            extra_kwargs=exp_dict)
-
     if not exists(join(deformations_dir, str(timepoints[-2]) + '_to_' + str(timepoints[-1]) + '.svf.nii.gz')):
         print('[error] No observations found. Skipping.')
         return subject

@@ -1,3 +1,5 @@
+from setup import *
+
 import subprocess
 from os.path import join, dirname
 from argparse import ArgumentParser
@@ -7,7 +9,6 @@ import bids
 from scipy.ndimage import binary_dilation, gaussian_filter
 from skimage.morphology import ball
 
-from setup import *
 from src.uslr import *
 from utils.fn_utils import one_hot_encoding
 from utils.labels import SYNTHSEG_APARC_LUT
@@ -18,7 +19,7 @@ def compute_subject_template(subject, uslr_lin_dir, verbose=True):
 
     image_ent = {'scope': basename(DIR_PIPELINES['seg']), 'extension': 'nii.gz', 'subject': subject, 'suffix': 'T1w'}
     seg_ent = {'scope': basename(DIR_PIPELINES['seg']), 'extension': 'nii.gz', 'subject': subject, 'suffix': 'T1wdseg'}
-    aff_ent= {'scope': basename(DIR_PIPELINES['uslr-lin']), 'desc': 'aff', 'extension': 'npy', 'suffix': 'T1w'}
+    aff_ent = {'scope': basename(DIR_PIPELINES['uslr-lin']), 'desc': 'aff', 'extension': 'npy', 'suffix': 'T1w'}
 
     fname_template = 'sub-' + subject + '_desc-linTemplate_T1w'
     template_path = join(dir_results, fname_template + '.nii.gz')
@@ -26,7 +27,7 @@ def compute_subject_template(subject, uslr_lin_dir, verbose=True):
     template_seg_path = join(dir_results, fname_template + 'dseg.nii.gz')
 
     timepoints = bids_loader.get_session(subject=subject)
-    timepoints = list(filter(lambda x: len(bids_loader.get(**{**seg_ent, 'session':x })) > 0, timepoints))
+    timepoints = list(filter(lambda x: len(bids_loader.get(**{**seg_ent, 'session': x})) > 0, timepoints))
 
     if len(timepoints) == 0:
         print('[done] No modalities found. Skipping')
@@ -66,7 +67,6 @@ def compute_subject_template(subject, uslr_lin_dir, verbose=True):
         headers_1mm = {}
         headers_orig = {}
         for it_tp, tp in enumerate(timepoints):
-            image_tp_ent = {**image_ent, 'session': tp}
             affine_file = bids_loader.get(**{**aff_ent, 'session': tp})
             if len(affine_file) != 1:
                 print('[error] Wrong affine file entities')
@@ -76,7 +76,7 @@ def compute_subject_template(subject, uslr_lin_dir, verbose=True):
             affine_matrix = np.load(affine_file[0])
 
             # Load image at the original resolution
-            im_file = bids_loader.get(**image_tp_ent, acquisition=None)
+            im_file = bids_loader.get(**image_ent, session=tp, acquisition=None)
             if len(im_file) != 1:
                 print('[error] ' + str(len(im_file)) + ' image(s) found in the synthseg directory. Skipping.')
                 return subject
@@ -84,7 +84,7 @@ def compute_subject_template(subject, uslr_lin_dir, verbose=True):
                 im_file = im_file[0]
 
             # Load mask at 1mm3
-            seg_file = bids_loader.get(**image_tp_ent, acquisition=1, suffix='T1wdseg')
+            seg_file = bids_loader.get(**seg_ent, session=tp, acquisition=1)
             if len(seg_file) != 1:
                 if all(['run' in r.entities.keys() for r in seg_file]):
                     seg_file = list(filter(lambda x: x.entities['run'] == '01', seg_file))
@@ -99,8 +99,9 @@ def compute_subject_template(subject, uslr_lin_dir, verbose=True):
             else:
                 seg_file = seg_file[0]
 
-            mask_file = seg_file.replace('T1wdseg', 'T1wmask')
-
+            mask_ent_tp = {k: str(v) for k, v in seg_file.entities.items() if k in filename_entities}
+            mask_ent_tp['suffix'] = 'T1wmask'
+            mask_file = bids_loader.get(**mask_ent_tp)[0]
 
             proxyim = nib.load(im_file.path)
             proxymask = nib.load(mask_file.path)
@@ -150,7 +151,7 @@ def compute_subject_template(subject, uslr_lin_dir, verbose=True):
             sigmas = 0.25 / factor
             sigmas[factor > 1] = 0  # don't blur if upsampling
 
-            im_orig_array = np.array(image_dict[tp].dataobj)
+            im_orig_array = np.array(proxyim.dataobj)
             if len(im_orig_array.shape) > 3:
                 im_orig_array = im_orig_array[..., 0]
             volume_filt = gaussian_filter(im_orig_array, sigmas)
@@ -167,7 +168,7 @@ def compute_subject_template(subject, uslr_lin_dir, verbose=True):
             mask_list.append(np.array(im_mri.dataobj))
 
             # Resample seg
-            im_mri = nib.Nifti1Image(np.array(seg_dict[tp].dataobj), headers_1mm[tp])
+            im_mri = nib.Nifti1Image(np.array(nib.load(seg_dict[tp]).dataobj), headers_1mm[tp])
             im_mri = vol_resample(proxytemplate, im_mri, mode='nearest')
             seg_list += one_hot_encoding(np.array(im_mri.dataobj), categories=aparc_aseg)
 

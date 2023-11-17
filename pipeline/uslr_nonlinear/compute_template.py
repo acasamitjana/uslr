@@ -1,3 +1,5 @@
+from setup import *
+
 import subprocess
 from os.path import exists, join, dirname, basename
 import time
@@ -5,15 +7,13 @@ from argparse import ArgumentParser
 
 import nibabel as nib
 import numpy as np
-from scipy.ndimage import gaussian_filter
 import bids
 
-from setup import *
 from utils import labels, def_utils, fn_utils
 
 def process_timepoints(subject, timepoints, bids_loader, proxyref, channel_chunk=20, force_flag=False):
 
-    svf_files = bids_loader.get(**{'subject': subject, 'suffix': 'svf', 'scope': 'usrl-nonlin'})
+    svf_files = bids_loader.get(**{'subject': subject, 'suffix': 'svf', 'scope': 'uslr-nonlin'})
     if len(svf_files) < len(timepoints):
         print('[error] Not all timepoints have SVF available. Skipping.')
         return subject
@@ -74,6 +74,10 @@ def process_timepoints(subject, timepoints, bids_loader, proxyref, channel_chunk
             im_mri = nib.Nifti1Image(image, im_mri.affine)
             nib.save(im_mri, sess_im_filepath)
             output_dict[svf_ent['session']]['im'] = image
+        else:
+            im_mri = nib.load(sess_im_filepath)
+            output_dict[svf_ent['session']]['im'] = np.array(im_mri.dataobj)
+
 
         if not exists(sess_mask_filepath) or force_flag:
             seg = np.asarray(proxyseg.dataobj)
@@ -82,7 +86,10 @@ def process_timepoints(subject, timepoints, bids_loader, proxyref, channel_chunk
             proxyflo_mask = nib.Nifti1Image(mask.astype('float'), v2r_seg)
             mask_mri = def_utils.vol_resample(proxyref, proxyflo_mask, proxysvf=proxysvf)
             nib.save(mask_mri, sess_mask_filepath)
-            output_dict[svf_ent['session']]['mask'] = mask_mri
+            output_dict[svf_ent['session']]['mask'] = np.array(mask_mri.dataobj)
+        else:
+            im_mri = nib.load(sess_im_filepath)
+            output_dict[svf_ent['session']]['mask'] = np.array(im_mri.dataobj)
 
         if seg_flag and (not exists(sess_seg_filepath) or force_flag):
             seg_list = []
@@ -106,6 +113,10 @@ def process_timepoints(subject, timepoints, bids_loader, proxyref, channel_chunk
             nib.save(seg_mri, sess_seg_filepath)
             output_dict[svf_ent['session']]['dseg'] = seg_post
 
+        elif seg_flag and exists(sess_seg_filepath):
+            im_mri = nib.load(sess_seg_filepath)
+            output_dict[svf_ent['session']]['dseg'] = np.array(im_mri.dataobj)
+
     return output_dict
 
 def process_template(subject, bids_loader, force_flag=False):
@@ -126,34 +137,34 @@ def process_template(subject, bids_loader, force_flag=False):
         elif file.entities['suffix'] == 'T1w':
             linear_template['image'] = file
 
-    if len(linear_template.keys()) != 3:
+    if len(linear_template.keys()) == 0:
         print('[warning] Linear template does not exist for subject ' + subject + '. Skipping.')
         return subject
 
+    fname_template = 'sub-' + subject + '_desc-nonlinTemplate_T1w'
     nonlinear_template_fpath = {
-        'im': join(dir_nonlin_subj, linear_template['image'].filename.replace('linTemplate', 'nonlinTemplate')),
-        'mask': join(dir_nonlin_subj, linear_template['mask'].filename.replace('linTemplate', 'nonlinTemplate')),
-        'dseg': join(dir_nonlin_subj, linear_template['dseg'].filename.replace('linTemplate', 'nonlinTemplate')),
-        'std': join(dir_nonlin_subj,
-                    linear_template['image'].filename.replace('linTemplate', 'nonlinTemplate').replace('T1w', 'std')),
+        'image': join(dir_nonlin_subj, fname_template + '.nii.gz'),
+        'mask': join(dir_nonlin_subj, fname_template + 'mask.nii.gz'),
+        'dseg': join(dir_nonlin_subj, fname_template + 'dseg.nii.gz'),
+        'std': join(dir_nonlin_subj, fname_template + 'dseg.nii.gz'),
     }
 
     for im_type, im_file in linear_template.items():
-        if im_type is not 'image':
+        if im_type != 'image':
             subprocess.call(['rm', '-rf', im_file.path])
 
     if len(timepoints) == 1:
-        if not exists(nonlinear_template_fpath['im']):
-            subprocess.call(['cp', linear_template['image'].path, nonlinear_template_fpath['im']])
-        if not exists(nonlinear_template_fpath['mask']):
+        if not exists(nonlinear_template_fpath['image']) and exists(linear_template['image'].path):
+            subprocess.call(['cp', linear_template['image'].path, nonlinear_template_fpath['image']])
+        if not exists(nonlinear_template_fpath['mask']) and exists(linear_template['mask'].path):
             subprocess.call(['cp', linear_template['mask'].path, nonlinear_template_fpath['mask']])
-        if not exists(nonlinear_template_fpath['dseg']):
+        if not exists(nonlinear_template_fpath['dseg']) and exists(linear_template['dseg'].path):
             subprocess.call(['cp', linear_template['dseg'].path, nonlinear_template_fpath['dseg']])
 
         print('[done] It has only 1 timepoint.')
         return
 
-    if (exists(nonlinear_template_fpath['im']) and not force_flag) and \
+    if (exists(nonlinear_template_fpath['image']) and not force_flag) and \
             (seg_flag and exists(nonlinear_template_fpath['dseg']) and not force_flag):
         print('[done] It has already been processed. ')
         return
@@ -168,7 +179,7 @@ def process_template(subject, bids_loader, force_flag=False):
         template = np.median(mri_list, axis=0)
         template_std = np.std(mri_list, axis=0)
         img = nib.Nifti1Image(template, nib.load(linear_template['image']).affine)
-        nib.save(img, nonlinear_template_fpath['im'])
+        nib.save(img, nonlinear_template_fpath['image'])
 
         img = nib.Nifti1Image(template_std, nib.load(linear_template['image']).affine)
         nib.save(img, nonlinear_template_fpath['std'])
@@ -184,7 +195,7 @@ def process_template(subject, bids_loader, force_flag=False):
         np.save(nonlinear_etiv, np.sum(template > 0.5))
 
     if seg_flag:
-        seg_list = np.zeros((len(labels_lut),) + nib.load(nonlinear_template_fpath['im']).shape)
+        seg_list = np.zeros((len(labels_lut),) + nib.load(nonlinear_template_fpath['image']).shape)
         seg_filelist = [output_d[tp]['dseg'] for tp in timepoints]
         if len(seg_filelist) > 0:
             for seg in seg_filelist:

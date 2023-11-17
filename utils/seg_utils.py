@@ -1,4 +1,5 @@
 import csv
+import pdb
 from os import listdir
 from os.path import exists, join, basename, dirname
 import time
@@ -15,46 +16,43 @@ from utils import fn_utils,  def_utils
 
 class LabelFusion(object):
 
-    def __init__(self, bids_loader, def_scope='uslr-lin', seg_scope='synthseg', output_scope='usr-lin-synthseg',
-                 spatial_variance=9, temp_variance=np.inf, time_marker='time_to_bl_days', type_map=None,
-                 all_labels_flag=None, save_seg=False, chunk_size=None):
-
+    def __init__(self, bids_loader, args, chunk_size=None):
         self.bids_loader = bids_loader
-        self.seg_scope = seg_scope
-        self.def_scope = def_scope
-        self.output_scope = output_scope
-        self.output_dir = join(dirname(self.bids_loader.root), 'derivatives', output_scope)
-        self.tvar = temp_variance if temp_variance is not None else [np.inf]
-        self.svar = spatial_variance if spatial_variance is not None else [np.inf]
-        self.time_marker = time_marker
-        self.type_map = type_map
-        self.save_seg = save_seg
+        self.seg_scope = args.seg_scope
+        self.def_scope = args.field
+        self.output_scope = args.field + '-' + args.seg_scope
+        self.output_dir = join(DERIVATIVES_DIR, self.output_scope)
+        self.tvar = args.tvar if args.tvar is not None else [np.inf]
+        self.svar = args.svar if args.svar is not None else [np.inf]
+        self.time_marker = args.tm
+        self.type_map = args.type_map
+        self.save_seg = args.save_seg
 
-        self.im_1mm_ent = {'acquisition': '1', 'extension': 'nii.gz', 'suffix': 'T1w', 'scope': seg_scope}
-        self.im_ent = {'acquisition': None, 'extension': 'nii.gz', 'suffix': 'T1w', 'scope': seg_scope}
-        self.seg_ent = {'acquisition': '1', 'suffix': 'T1wdseg', 'scope': seg_scope, 'extension': 'nii.gz'}
+        self.im_1mm_ent = {'acquisition': '1', 'extension': 'nii.gz', 'suffix': 'T1w', 'scope': self.seg_scope}
+        self.im_ent = {'acquisition': None, 'extension': 'nii.gz', 'suffix': 'T1w', 'scope': self.seg_scope}
+        self.seg_ent = {'acquisition': '1', 'suffix': 'T1wdseg', 'scope': self.seg_scope, 'extension': 'nii.gz'}
 
 
-        self.all_labels_flag = all_labels_flag
-        if seg_scope == 'freesurfer' and all_labels_flag is False:
+        self.all_labels_flag = args.all_labels
+        if self.seg_scope == 'freesurfer' and self.all_labels_flag is False:
             self.labels_lut = ASEG_LUT
-        elif seg_scope == 'synthseg' and all_labels_flag is False:
+        elif self.seg_scope == 'synthseg' and self.all_labels_flag is False:
             self.labels_lut = SYNTHSEG_LUT
-        elif seg_scope == 'synthseg' and all_labels_flag:
+        elif self.seg_scope == 'synthseg' and self.all_labels_flag:
             self.labels_lut = SYNTHSEG_APARC_LUT
         else:
             self.labels_lut = SYNTHSEG_LUT
 
-        if all_labels_flag:
+        if self.all_labels_flag:
             self.vols_fname = '_desc-all_vols.tsv'
         else:
             self.vols_fname = '_vols.tsv'
 
-        if type_map == 'distance_map':
+        if self.type_map == 'distance_map':
             self.interpmethod = 'seg'
-        elif type_map == 'onehot_map':
+        elif self.type_map == 'onehot_map':
             self.interpmethod = 'onehot'
-        elif type_map == 'gauss_map':
+        elif self.type_map == 'gauss_map':
             self.interpmethod = 'gauss'
         else:
             self.interpmethod = 'post'
@@ -106,7 +104,7 @@ class LabelFusion(object):
 
                 sess_df.to_csv(sess_tsv[0], sep='\t')
 
-        if not (all([tv == np.inf for tv in self.temp_variance])):
+        if not (all([tv == np.inf for tv in self.tvar])):
             timepoints = list(filter(lambda t: not np.isnan(float(sess_df.loc[t][self.time_marker])), timepoints))
 
         timepoints = list(filter(lambda t: len(self.bids_loader.get(**{'subject': subject, 'session': t, **self.seg_ent})) > 0, timepoints))
@@ -154,16 +152,16 @@ class LabelFusion(object):
                 if tp not in vol_tsv.keys():
                     timepoints_to_run.append(tp)
                 else:
-                    if not self.spatial_variance and not self.temp_variance:
+                    if not self.svar and not self.tvar:
                         timepoints_to_run.append(tp)
-                    elif all([len(vol_tsv[tp].loc[t, s, self.interpmethod]) == 1 for t in self.temp_variance for s in self.spatial_variance]):
+                    elif all([len(vol_tsv[tp].loc[t, s, self.interpmethod]) == 1 for t in self.tvar for s in self.svar]):
                         timepoints_to_run.append(tp)
 
         if not timepoints_to_run:
             print('[done] Subject: ' + str(subject) + ' has been already processed.')
             return None
 
-        if all([tv == np.inf for tv in self.temp_variance]):
+        if all([tv == np.inf for tv in self.tvar]):
             time_dict = {tp: 0 for tp in timepoints}
         else:
             time_dict = {}
@@ -174,21 +172,21 @@ class LabelFusion(object):
         return (timepoints_to_run, timepoints, time_dict)
 
     def register_timepoints_st(self, subject, tp_ref, tp_flo, proxyref, proxyimage_flo=None, proxyseg_flo=None,
-                               im_mode='bilinear', seg_mode='bilinear'):
+                               im_mode='linear', seg_mode='linear'):
         '''
         :param subject:
         :param tp_ref:
         :param tp_flo:
         :param image_flo:
         :param seg_flo:
-        :param im_mode: 'bilinear', 'nearest'.
-        :param seg_mode: 'bilinear', 'nearest'.
+        :param im_mode: 'linear', 'nearest'.
+        :param seg_mode: 'linear', 'nearest'.
         :return:
         '''
 
         # Ref parameters
         aff_dict = {'subject': subject, 'desc': 'aff', 'suffix': 'T1w', 'scope': 'uslr-lin', 'extension': 'npy'}
-        svf_dict = {'subject': subject, 'suffix': 'svf', 'scope': 'uslr-nonlin', 'extension': 'nii.gz'}
+        svf_dict = {'subject': subject, 'suffix': 'svf', 'scope': 'uslr-nonlin', 'extension': 'nii.gz', 'space': None}
 
         affine_file_ref = self.bids_loader.get(**{**aff_dict, 'session': tp_ref})
         if len(affine_file_ref) != 1:
@@ -311,9 +309,11 @@ class LabelFusion(object):
         if all([s == np.inf for s in self.svar]):
             proxyimage = None
 
-        seg_mode = 'bilinear'
+        seg_mode = 'nearest'
         if self.type_map == 'distance_map':
             seg_mode = 'distance'
+        elif self.type_map in ['onehot_map', 'gauss_map']:
+            seg_mode = 'linear'
 
         data_resampled = self.register_timepoints_st(subject, tp_ref, tp_flo, proxyim_ref, proxyimage_flo=proxyimage,
                                                      proxyseg_flo=proxyseg, seg_mode=seg_mode)
@@ -325,7 +325,7 @@ class LabelFusion(object):
         v2r_ref = proxyim_ref.affine
         chunk_size = (chunk[0][1]-chunk[0][0], chunk[1][1]-chunk[1][0], chunk[2][1]-chunk[2][0])
         p_data = np.zeros(chunk_size + (1, len(timepoints)), dtype='float32')
-        p_label = np.zeros(chunk_size + (len(self.labels_lut), len(timepoints)), dtype='float32')
+        p_label = np.zeros(chunk_size + (len(np.unique(list(self.labels_lut.values()))), len(timepoints)), dtype='float32')
 
         im = np.array(proxyim_ref.dataobj[chunk[0][0]: chunk[0][1], chunk[1][0]: chunk[1][1], chunk[2][0]: chunk[2][1]])
         for it_tp_flo, tp_flo in enumerate(timepoints):
@@ -345,15 +345,13 @@ class LabelFusion(object):
                 seg_res = softmax(seg_res, axis=-1)
 
 
-            p_data[..., it_tp_flo] = im_res
+            p_data[..., it_tp_flo] = im_res[..., np.newaxis]
             p_label[..., it_tp_flo] = seg_res
             del im_res, seg_res
 
         return (im[..., np.newaxis, np.newaxis] - p_data)**2, p_label, v2r_ref
 
     def label_fusion(self, subject, force_flag=False, *args, **kwargs):
-
-        print('Subject: ' + str(subject), end=' ', flush=True)
 
         data_init = self.prepare_data(subject, force_flag)
         if data_init is None:
@@ -363,14 +361,14 @@ class LabelFusion(object):
         else:
             timepoints_to_run, timepoints, time_list = data_init
 
-        print('  o Computing the segmentation')
+        print('  o Computing the segmentation.')
         im_d = {}
         seg_d = {}
         for tp in timepoints_to_run:
             im_file = self.bids_loader.get(subject=subject, session=tp, **self.im_ent)
             seg_file = self.bids_loader.get(subject=subject, session=tp, **self.seg_ent)
 
-            if seg_file > 1:
+            if len(seg_file) > 1:
                 txtf = list(filter(lambda f: 'txt' in f and 'dseg' in f, listdir(seg_file[0].path)))
                 if len(txtf) != 1:
                     print('[error] seg file for subject ' + subject + ' and session ' + tp + ' is not found. Skipping')
@@ -381,7 +379,7 @@ class LabelFusion(object):
                     print('[error] seg file for subject ' + subject + ' and session ' + tp + ' is not found. Skipping')
                     return subject
 
-            if im_file > 1:
+            if len(im_file) > 1:
                 txtf = list(filter(lambda f: 'txt' in f and 'dseg' not in f, listdir(seg_file[0].path)))
                 if len(txtf) != 1:
                     print('[error] More than one image file found. Skipping.')
@@ -418,12 +416,13 @@ class LabelFusion(object):
 
             chunk_list = self.get_chunk_list(proxyimage)
             for it_chunk, chunk in enumerate(chunk_list):
-                if it_chunk == len(chunk_list) - 1:
-                    print(str(it_chunk) + '/' + str(len(chunk_list)), end='. ', flush=True)
-                else:
-                    print(str(it_chunk) + '/' + str(len(chunk_list)), end=', ', flush=True)
+                print(str(it_chunk + 1) + '/' + str(len(chunk_list)), end='\r', flush=True)
+                # if it_chunk == len(chunk_list) - 1:
+                #     print(str(it_chunk+1) + '/' + str(len(chunk_list)), end='\r', flush=True)
+                # else:
+                #     print(str(it_chunk+1) + '/' + str(len(chunk_list)), end=', ', flush=True)
 
-                output_label = self.compute_p_label(timepoints, subject, tp, proxyimage, proxyseg, chunk)
+                output_label = self.compute_p_label(timepoints, subject, tp, proxyimage, proxyseg, chunk, im_d, seg_d)
                 if isinstance(output_label, str):
                     return output_label
 
@@ -441,9 +440,12 @@ class LabelFusion(object):
                         p_label = np.zeros(output_label[1].shape[:-1])
                         if float(s_var) > 0 and float(t_var) > 0:
                             for it_t in range(output_label[1].shape[-1]):
-                                p_label += p_data[..., np.newaxis, it_t] * output_label[1][..., it_t]#, axis=-1)
+                                if len(p_data.shape) == 1:
+                                    p_label += p_data * output_label[1][..., it_t]  # , axis=-1)
+                                else:
+                                    p_label += p_data[...,  it_t] * output_label[1][..., it_t]#, axis=-1)
                         else:
-                            it_ref = [it_t for it_t, t in enumerate(timepoints) if t==tp][0]
+                            it_ref = [it_t for it_t, t in enumerate(timepoints) if t == tp][0]
                             p_label = output_label[1][..., it_ref]
 
                         del p_data
@@ -480,7 +482,7 @@ class LabelFusion(object):
                         vols = get_vols(fake_vol, res=pixdim, labels=list(self.labels_lut.keys()))
                         for k, v in self.labels_lut.items():
                             st_vols_dict_norm[t_var][s_var][k] = st_vols_dict_norm[t_var][s_var][k] + vols_norm[v]
-                            st_vols_dict[t_var][s_var][k] = st_vols_dict[t_var][s_var][k] + vols[v]
+                            st_vols_dict[t_var][s_var][k] = st_vols_dict[t_var][s_var][k] + vols[k]
 
                         del p_label, fake_vol
 
@@ -520,7 +522,7 @@ class LabelFusion(object):
 
 def write_volume_results(volume_dict, filepath, fieldnames=None, attach_overwrite='a'):
     if fieldnames is None:
-        fieldnames = ['id', 't_var', 's_var'] + list(ASEG_APARC_ARR)
+        fieldnames = ['id', 't_var', 's_var'] + list(SYNTHSEG_LUT.keys())
 
     write_header = True if (not exists(filepath) or attach_overwrite == 'w') else False
     with open(filepath, attach_overwrite) as csvfile:

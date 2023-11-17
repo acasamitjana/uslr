@@ -1,3 +1,4 @@
+import pdb
 from os.path import join, exists, basename
 from os import  makedirs
 import itertools
@@ -150,7 +151,8 @@ def st_linear(bids_loader, subject, cost, lr, max_iter, n_epochs, slr_lin_dir, f
 
     # Deformations dir
     if not exists(join(deformations_dir, timepoints[-2] + '_to_' + timepoints[-1] + '.npy')):
-        if verbose: print('[error] No observations found for subject ' + subject + ' and Procrustes Analysis. Skipping.')
+        pdb.set_trace()
+        print('[error] No observations found for subject ' + subject + ' and Procrustes Analysis. Skipping.')
         return [subject]
 
     # Check if multiple runs in this dataset.

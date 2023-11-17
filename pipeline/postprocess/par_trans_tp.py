@@ -1,3 +1,7 @@
+import pdb
+
+from setup import *
+
 import time
 import copy
 from os.path import exists, join, dirname
@@ -7,7 +11,6 @@ import nibabel as nib
 import bids
 
 # project imports
-from setup import *
 from utils.labels import *
 from utils import synthmorph_utils, def_utils, fn_utils
 
@@ -39,51 +42,63 @@ def process_subject(subject, bids_loader, args):
         print('[error] N=' + str(len(template_image)) + ' subject-specific template are found (expected=1). Skipping')
         return failed_tp.append(subject)
 
-    proxysvf_template = nib.load(svf_image.path)
+    proxysvf_template = nib.load(svf_image[0].path)
     svf_template_image = np.array(proxysvf_template.dataobj)
-    proxyanat_template = nib.load(template_image.path)
+    proxyanat_template = nib.load(template_image[0].path)
 
     for tp in timepoints:
-        print(tp, end='; ', flush=True)
+        print(' * Session: ' + tp, end='; ', flush=True)
 
         svf_tp_file = bids_loader.get(scope='uslr-nonlin', suffix='svf', subject=subject, session=tp,
                                       extension='nii.gz', regex_search=False)
         if len(svf_tp_file) != 1:
-            print('[error] N=' + str(len(svf_tp_file)) + ' SVF found for subject: ' + subject + ' and tp: ' + tp +
-                  '. Skipping.')
+            N = len(svf_tp_file)
+            print('[error] N=' + str(N) + ' SVF found for subject: ' + subject + ' and tp: ' + tp + '. Skipping.')
             failed_tp.append('sub-' + subject + '_ses-' + tp)
+            continue
 
         svf_tp_file = svf_tp_file[0]
-        svf_tp_temp_fname = bids_loader.build_path({**svf_tp_file[0].entities, 'space': args.template}, validate=False,
+        svf_tp_temp_fname = bids_loader.build_path({**svf_tp_file.entities, 'space': args.template}, validate=False,
                                                    path_patterns=BIDS_PATH_PATTERN, strict=False, absolute_paths=False)
         svf_tp_temp_fpath = join(DIR_PIPELINES['uslr-nonlin'], svf_tp_temp_fname)
-        if exists(svf_tp_temp_fpath) or not args.force:
+        if exists(svf_tp_temp_fpath) and not args.force:
             print('[done] This subject has already been processed.')
             return
 
         proxysvf_tp = nib.load(svf_tp_file.path)
+        svf_aff = proxysvf_tp.affine
         long_svf_arr = np.array(proxysvf_tp.dataobj)
-
+        #
         if long_svf_arr.shape[0] == 3:
             long_svf_arr = np.transpose(long_svf_arr, axes=(1, 2, 3, 0))
+
+        if exists(join(DIR_PIPELINES['uslr-nonlin'], 'sub-' + subject, 'sub-' + subject + '_desc-atlas_aff.npy')):
+            M = np.load(join(DIR_PIPELINES['uslr-nonlin'],  'sub-' + subject, 'sub-' + subject + '_desc-atlas_aff.npy'))
+        else:
+            print('[error] Affine matrix to SynthMorph atlas not found. Skipping.')
+            failed_tp.append('sub-' + subject + '_ses-' + tp)
+            continue
 
         # Up-scale SVF:
         # Just to adapt to the resolution of SVF to MNI, but we do not rescale it to not alter the true
         # SVF. Moreover it will be downscaled again later on.
-        svf_aff = proxysvf_tp.affine
-        pixdim = np.sqrt(np.sum(svf_aff * svf_aff, axis=0))[:-1]
-        new_vox_size = np.sqrt(np.sum(proxytemplate.affine * proxytemplate.affine, axis=0))[:-1]
-        factor = pixdim / new_vox_size
-        long_svf_arr, svf_aff = fn_utils.rescale_voxel_size(long_svf_arr, svf_aff, new_vox_size, not_aliasing=True)
+        print('upscaling svf; ', end='', flush=True)
+        svf_atlas_v2r = copy.deepcopy(proxyatlas.affine)
+        for c in range(3): svf_atlas_v2r[:-1, c] = svf_atlas_v2r[:-1, c] * args.factor
+        svf_atlas_v2r[:-1, -1] -= svf_atlas_v2r[:-1, :-1] @ (0.5 * (np.array([1 / args.factor]*3) - 1))
+        new_vox_size = np.sqrt(np.sum(proxyatlas.affine * proxyatlas.affine, axis=0))[:-1]
+        long_svf_arr, _ = fn_utils.rescale_voxel_size(long_svf_arr, svf_atlas_v2r, new_vox_size, not_aliasing=True)
 
         # Pole Ladder
+        print('running pole ladder; ', end='', flush=True)
         steps = int(np.ceil(np.sqrt(np.sum(svf_template_image ** 2, axis=-1)).max() / 0.5))  # + 10
         long_svf_arr_T = def_utils.pole_ladder(long_svf_arr, svf_template_image, steps)
 
         # Down-scale SVF:
         # To have the same resolution as the original SVF
-        new_vox_size = np.sqrt(np.sum(proxysvf_tp.affine * proxysvf_tp.affine, axis=0))[:-1]
-        long_svf_arr_T, svf_aff = fn_utils.rescale_voxel_size(long_svf_arr_T, svf_aff, new_vox_size, not_aliasing=True)
+        new_vox_size = np.sqrt(np.sum(svf_atlas_v2r * svf_atlas_v2r, axis=0))[:-1]
+        long_svf_arr_T, _ = fn_utils.rescale_voxel_size(long_svf_arr_T, proxyatlas.affine, new_vox_size,
+                                                        not_aliasing=True)
 
         # The current SVF is on SyntMorph space (where the SVF to TEMPLATE is also defined).
         # If template!='SynthMorph', we need to specify the correct v2r to align it to the original TEMPLATE space
@@ -98,13 +113,15 @@ def process_subject(subject, bids_loader, args):
 
         svf_v2r = copy.deepcopy(svf_1mm_v2r)
         for c in range(3):
-            svf_v2r[:-1, c] = svf_v2r[:-1, c] * factor
-        svf_v2r[:-1, -1] = svf_v2r[:-1, -1] - np.matmul(svf_v2r[:-1, :-1], 0.5 * (np.array([1 / factor] * 3) - 1))
+            svf_v2r[:-1, c] = svf_v2r[:-1, c] * args.factor
+        svf_v2r[:-1, -1] -= svf_v2r[:-1, :-1] @ (0.5 * (np.array([1 / args.factor] * 3) - 1))
 
+        print('saving.')
         proxy_long_svf_T = nib.Nifti1Image(long_svf_arr_T, svf_v2r)
         nib.save(proxy_long_svf_T, svf_tp_temp_fpath)
     
     
+
 
 
 
@@ -170,11 +187,11 @@ if __name__ == '__main__':
     for it_subject, subject in enumerate(subject_list):
         print('* Subject: ' + subject + '. (' + str(it_subject) + '/' + str(len(subject_list)) + ').')
         t_init = time.time()
-        try:
-            ms = process_subject(subject, bids_loader, args)
-            print('  Total Elapsed time: ' + str(np.round(time.time() - t_init, 2)) + ' seconds.')
-        except:
-            ms = [subject]
+        # try:
+        ms = process_subject(subject, bids_loader, args)
+        print('  Total Elapsed time: ' + str(np.round(time.time() - t_init, 2)) + ' seconds.')
+        # except:
+        #     ms = [subject]
 
         if ms is not None:
             failed_subjects.extend(ms)
@@ -190,17 +207,3 @@ if __name__ == '__main__':
     print('# --------- FI (USLR-NONLIN: register_template) --------- #')
     print('\n')
 
-
-################
-# Read volumes #
-################
-print('Reading volumes.')
-for it_subject, subject in enumerate(subject_list):
-    t_init = time.time()
-
-    print(' - Subject: ' + str(subject) + '. Timepoints: ', end=' ', flush=True)
-
-
-    print('DONE. Total Elapsed time: ' + str(np.round(time.time() - t_init, 2)) + ' seconds.')
-
-print('\n# ---------- DONE -------------- #')

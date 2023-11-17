@@ -1,5 +1,6 @@
 import os
 import json
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 
 filename_entities = ['subject', 'session', 'run', 'acquisition', 'suffix', 'extension', 'task', 'tracer', 'reconstruction']
 BIDS_PATH_PATTERN = [

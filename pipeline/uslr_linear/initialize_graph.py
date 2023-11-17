@@ -1,23 +1,20 @@
 # imports
-import os
-import pdb
+from setup import *
+
 from os.path import join, exists, dirname
-from os import makedirs, rmdir
+from os import makedirs
 import time
 from argparse import ArgumentParser
-import shutil
 
 # third party imports
 import numpy as np
 import itertools
 import bids
-import nibabel as nib
 
 # project imports
 from utils.uslr_utils import initialize_graph_linear
 from utils.fn_utils import compute_centroids_ras
 from utils.synthmorph_utils import labels_registration
-from setup import *
 
 
 def process_subject(subject, bids_loader, force_flag=False):
@@ -64,10 +61,8 @@ def process_subject(subject, bids_loader, force_flag=False):
             print('done.')
             continue
 
-        initialize_graph_linear([centroid_dict[tp_ref], centroid_dict[tp_flo]], join(deformations_dir, filename + '.aff'))
+        initialize_graph_linear([centroid_dict[tp_ref], centroid_dict[tp_flo]], join(deformations_dir, filename + '.npy'))
 
-        if not exists(join(deformations_dir, filename + '.npy')):
-            print(join(deformations_dir, filename + '.npy'))
         print('done.')
 
 if __name__ == '__main__':

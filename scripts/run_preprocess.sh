@@ -6,7 +6,7 @@ if  [ $# -eq 0 ]; then
     echo "Running all subjects in BIDS_DIR"
     echo "********************************"
     echo ""
-    python ../pipeline/preprocess/mri_synthseg.py
+    python ../pipeline/preprocess/synthseg.py
     python ../pipeline/preprocess/bias_field.py
 else
         echo ""
@@ -14,7 +14,7 @@ else
     echo "Running subject(s) " $@
     echo "*****************************"
     echo ""
-    python ../pipeline/preprocess/mri_synthseg.py --subjects $@
+    python ../pipeline/preprocess/synthseg.py --subjects $@
     python ../pipeline/preprocess/bias_field.py --subjects $@
 fi
 

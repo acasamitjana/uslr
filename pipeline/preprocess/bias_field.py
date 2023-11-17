@@ -1,3 +1,4 @@
+import pdb
 from os.path import exists, join, dirname, basename
 from os import listdir
 from argparse import ArgumentParser
@@ -230,6 +231,9 @@ if __name__ == '__main__':
     parser.add_argument('--scope',
                         default='synthseg',
                         help="where to find the segmentation (derivative name)")
+    parser.add_argument('--num_cores',
+                        default=1,
+                        help="number of parallel processes to run the script.")
 
     args = parser.parse_args()
     bids_dir = args.bids
@@ -277,7 +281,7 @@ if __name__ == '__main__':
     f.write('Total unprocessed files: ' + str(len(failed_subjects)))
     f.write(','.join(['\'' + s + '\'' for s in failed_subjects]))
 
-    print('  Total failed subjects ' + str(len(failed_subjects)) + '. See ' + join(LOGS_DIR, 'bias_field.txt') + ' for more information.' )
+    print('\nTotal failed subjects ' + str(len(failed_subjects)) + '. See ' + join(LOGS_DIR, 'bias_field.txt') + ' for more information.' )
     print('\n')
     print('# --------- FI (USLR bias field correctoin) --------- #')
     print('\n')

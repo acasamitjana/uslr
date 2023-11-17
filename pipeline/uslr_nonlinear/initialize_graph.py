@@ -1,4 +1,7 @@
 # imports
+from setup import *
+
+import copy
 from os.path import join, exists, dirname, basename
 from os import makedirs
 import time
@@ -11,7 +14,6 @@ import nibabel as nib
 import itertools
 
 # project imports
-from setup import *
 from utils.uslr_utils import initialize_graph_nonlinear
 from utils import synthmorph_utils
 from utils.fn_utils import compute_centroids_ras
@@ -20,6 +22,9 @@ from utils.fn_utils import compute_centroids_ras
 def process_subject(subject, bids_loader, reg_args, force_flag=False):
     im_ent = {'scope': basename(DIR_PIPELINES['uslr-lin']), 'space': 'SUBJECT', 'acquisition': '1',
               'subject': subject, 'suffix': 'T1w', 'extension': 'nii.gz'}
+
+    mask_ent = copy.deepcopy(im_ent)
+    mask_ent['suffix'] = ['T1wmask', 'mask']
 
     timepoints = bids_loader.get_session(subject=subject)
     timepoints = list(filter(lambda x:  len(bids_loader.get(session=x, **im_ent)) > 0, timepoints))
@@ -81,14 +86,14 @@ def process_subject(subject, bids_loader, reg_args, force_flag=False):
         filename = str(tp_ref) + '_to_' + str(tp_flo)
 
         im_ref = bids_loader.get(**im_ent, session=tp_ref)
-        mask_ref = bids_loader.get(**im_ent, session=tp_ref, suffix=['T1wmask', 'mask'])
+        mask_ref = bids_loader.get(**mask_ent, session=tp_ref)
         if len(im_ref) != 1 or len(mask_ref) != 1:
             print('[error] Image and mask files for T=' + str(tp_ref) + ' are not found.', end=' ', flush=True)
             print('Please, refine the search. Resuming subject ' + subject)
             return subject
 
-        im_flo = bids_loader.get(**im_ent, session=tp_flo, run=run_ent[tp_flo])
-        mask_flo = bids_loader.get(**im_ent, session=tp_flo, run=run_ent[tp_flo], suffix=['T1wmask', 'mask'])
+        im_flo = bids_loader.get(**im_ent, session=tp_flo)
+        mask_flo = bids_loader.get(**mask_ent, session=tp_flo)
         if len(im_flo) != 1 or len(mask_flo) != 1:
             print('[error] Image and mask files for T=' + str(tp_flo) + ' are not found.', end=' ', flush=True)
             print('Please, refine the search. Resuming subject ' + subject)

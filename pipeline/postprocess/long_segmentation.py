@@ -32,11 +32,11 @@ if __name__ == '__main__':
                         help="Subjets to segment. Set to None (default) to segment the whole BIDS_DIR.")
     parser.add_argument('--num_cores', default=1, type=int,
                         help="Number of cores used to segment in parallel multiple subjects.")
-    parser.add_argument('--spatial_variance', default=[9], nargs='+', type=float,
+    parser.add_argument('--svar', default=[9], nargs='+', type=float,
                         help="Variance of the Gaussian kernel on the intensities. Set to inf for NAl")
-    parser.add_argument('--temp_variance', default=[np.inf], nargs='+', type=float,
+    parser.add_argument('--tvar', default=[np.inf], nargs='+', type=float,
                         help="Variance of the Gaussian kernel on the time_to_bl_years. Set to inf for NA")
-    parser.add_argument('--scope', default='synthseg', choices=['synthseg', 'freesurfer'],
+    parser.add_argument('--seg_scope', default='synthseg', choices=['synthseg', 'freesurfer'],
                         help="Scope under derivatives to find the labels.")
     parser.add_argument('--tm', default='time_to_bl_days', choices=['time_to_bl_days', 'age'],
                         help="Time marker. What metric of time to use (related to the temp_variance parameter.")
@@ -58,32 +58,20 @@ if __name__ == '__main__':
         bids_loader = bids.layout.BIDSLayout(root=args.bids, validate=False, database_path=db_file)
 
 
-    io_utils.create_derivative_dir(join(DERIVATIVES_DIR, args.field + '-' + args.scope),
-                                   'Longitudinal segmentation initialised using ' + args.scope + ' and using '
+    io_utils.create_derivative_dir(join(DERIVATIVES_DIR, args.field + '-' + args.seg_scope),
+                                   'Longitudinal segmentation initialised using ' + args.seg_scope + ' and using '
                                    + args.field + ' deformations.')
     bids_loader.add_derivatives(DIR_PIPELINES['uslr-nonlin'])
     bids_loader.add_derivatives(DIR_PIPELINES['uslr-lin'])
     bids_loader.add_derivatives(DIR_PIPELINES['seg'])
-    bids_loader.add_derivatives(DIR_PIPELINES[args.field + '-' + args.scope])
+    bids_loader.add_derivatives(join(DERIVATIVES_DIR, args.field + '-' + args.seg_scope))
     subject_list = bids_loader.get_subjects() if args.subjects is None else args.subjects
 
     ##############
     # Processing #
     ##############
 
-    segmenter = seg_utils.LabelFusion(bids_loader,
-                                      def_scope=def_scope,
-                                      seg_scope=scope,
-                                      output_scope=seg_dirname,
-                                      temp_variance=temp_variance,
-                                      spatial_variance=spatial_variance,
-                                      smooth=smooth,
-                                      time_marker=time_marker,
-                                      type_map=type_map,
-                                      fusion_method=fusion,
-                                      normalise=normalise_flag,
-                                      all_labels_flag=all_labels_flag,
-                                      save_seg=save_seg)
+    segmenter = seg_utils.LabelFusion(bids_loader, args)
 
     if args.num_cores > 1:
         missing_subjects = []
@@ -92,7 +80,7 @@ if __name__ == '__main__':
 
     else:
         for it_subject, subject in enumerate(subject_list):
-            print('* Subject: ' + subject + '. (' + str(it_subject) + '/' + str(len(subject_list)) + ').')
+            print('* Subject: ' + subject + '. (' + str(it_subject+1) + '/' + str(len(subject_list)) + ').')
             t_init = time.time()
             segmenter.label_fusion(subject, force_flag=args.force)
             print('  Total Elapsed time: ' + str(np.round(time.time() - t_init, 2)) + ' seconds.')

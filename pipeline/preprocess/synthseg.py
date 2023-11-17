@@ -1,4 +1,5 @@
 import os
+import pdb
 from os.path import exists, dirname, join, basename
 from os import makedirs
 from argparse import ArgumentParser
@@ -25,6 +26,7 @@ def segment(subject_list, force_flag=False):
         # for t1w_i in t1w_list:
         for tp in timepoints:
             synthseg_dirname = join(DIR_PIPELINES['seg'], 'sub-' + subject, 'ses-' + tp, 'anat')
+            if not exists(synthseg_dirname): os.makedirs(synthseg_dirname)
 
             # Select a single T1w image per session
             t1w_list = bids_loader.get(subject=subject, extension='nii.gz', suffix='T1w', session=tp)
@@ -95,19 +97,15 @@ if __name__ == '__main__':
     parser = ArgumentParser(description="SynthSeg segmentation using freesurfer implementation. It includes  segmentation "
                                         "and parcellation volumes, a summary volfile (synthseg dir) and the resampled image "
                                         "(rawdata dir). No robust or QC flags are used.", epilog='\n')
-    parser.add_argument('--subjects',
-                        default=None,
-                        nargs='+',
+
+    parser.add_argument("--bids", default=BIDS_DIR, help="Bids root directory, including rawdata")
+    parser.add_argument('--subjects', default=None, nargs='+',
                         help="(optional) specify which subjects to process")
-    parser.add_argument("--bids",
-                        default=BIDS_DIR,
-                        help="Bids root directory, including rawdata")
-    parser.add_argument("--force",
-                        action='store_true',
-                        help="Force the script to overwriting existing segmentations in the derivatives/synthseg directory.")
-    parser.add_argument("--gpu",
-                        action='store_true',
-                        help="Try to run SynthSeg on gpu.")
+    parser.add_argument("--force", action='store_true',
+                        help="Force the script to overwriting existing segmentations in the "
+                             "derivatives/synthseg directory.")
+    parser.add_argument("--gpu", action='store_true', help="Try to run SynthSeg on gpu.")
+    parser.add_argument("--threads", type=int, default=8, help="number of threads to run SynthSeg.")
 
     args = parser.parse_args()
     bids_dir = args.bids
@@ -115,9 +113,9 @@ if __name__ == '__main__':
     init_subject_list = args.subjects
     force_flag = args.force
 
-    extra_title = '-'.join(['']*len(bids_dir))
-    extra_blank_0 = ' '.join(['']*min(0, np.clip(len(bids_dir) - 37, 0, 1000000000)))
-    extra_blank = ' '.join(['']*len(extra_blank_0))
+    extra_blank_0 = ' '.join(['']*min(0, np.clip(37 - len(bids_dir), 0, 37)))
+    extra_title = '-'.join(['']*min(0, np.clip(len(bids_dir) - 37, 0, 37)))
+    extra_blank = ' '.join(['']*min(0, np.clip(len(bids_dir) - 37, 0, 37)))
 
     print('\n\n\n\n\n')
     print('# ---------------------------------------------------------------------------' + extra_title + ' #')
@@ -128,7 +126,7 @@ if __name__ == '__main__':
         print('#    - OVERWRITING existing files                                            ' + extra_blank + ' #')
     else:
         print('#    - Running only on subjects/sessions where segmentation is missing       ' + extra_blank + ' #')
-    print('# ---------------------------------------------------------------------------' + extra_blank + ' #')
+    print('# ---------------------------------------------------------------------------' + extra_title + ' #')
     print('\n\n')
 
     print('Loading dataset. \n')
@@ -172,9 +170,9 @@ if __name__ == '__main__':
 
     if len(output_files) >= 1:
         gpu_cmd = [''] if gpu_flag else ['--cp']
-        subprocess.call(['mri_synthseg', '--i', '/tmp/inputfiles.txt', '--o', '/tmp/outputfiles.txt',
-                         '--resample', '/tmp/resfiles.txt', '--vol', '/tmp/volfiles.txt', '--threads', '16',
-                         '--robust', '--parc'] + gpu_cmd)
+        subprocess.call(['mri_synthseg', '--i', '/tmp/inputfiles_uslr.txt', '--o', '/tmp/outputfiles_uslr.txt',
+                         '--resample', '/tmp/resfiles_uslr.txt', '--vol', '/tmp/volfiles_uslr.txt',
+                         '--threads', str(args.threads), '--robust', '--parc'] + gpu_cmd)
 
     for file in vol_files:
         fr = open(file, "r")

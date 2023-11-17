@@ -1,3 +1,5 @@
+from setup import *
+
 from os.path import dirname, join, exists
 import time
 from argparse import ArgumentParser
@@ -8,7 +10,6 @@ import numpy as np
 import bids
 
 # project imports
-from setup import *
 from src.uslr import *
 
 

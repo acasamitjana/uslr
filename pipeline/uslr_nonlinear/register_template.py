@@ -1,21 +1,24 @@
-import os
 import pdb
+
+from setup import *
+
 import time
-from os.path import exists, join, dirname, absename
+import warnings
+from os.path import exists, join, dirname
 from argparse import ArgumentParser
-import subprocess
+
 import nibabel as nib
 import numpy as np
 import torch
 from tensorflow import keras
 import bids
 
-# project imports
-from utils import synthmorph_utils, def_utils, io_utils
-from setup import *
 from utils.fn_utils import compute_centroids_ras
+from utils import synthmorph_utils
 from utils.synthmorph_utils import VxmDenseOriginalSynthmorph, instance_register, path_model_registration, \
     RescaleTransform, VecInt, fast_3D_interp_torch, fast_3D_interp_field_torch
+
+warnings.filterwarnings("ignore")
 
 def process_subject(subject, bids_loader, args, proxytemplate, proxyatlas, tmp_dir='/tmp'):
     uslr_nonlin_dir_sbj = join(DIR_PIPELINES['uslr-nonlin'], 'sub-' + subject)
@@ -35,7 +38,7 @@ def process_subject(subject, bids_loader, args, proxytemplate, proxyatlas, tmp_d
         return subject
 
     template = join(uslr_nonlin_dir_sbj, 'sub-' + subject + '_desc-nonlinTemplate_T1w.nii.gz')
-    template_mask = join(uslr_nonlin_dir_sbj, 'sub-' + subject + '_desc-nonlinTemplate_mask.nii.gz')
+    template_mask = join(uslr_nonlin_dir_sbj, 'sub-' + subject + '_desc-nonlinTemplate_T1wmask.nii.gz')
 
     if not exists(template) or not exists(template_mask):
         print('[error] Latent non-linear template has not been computed for subject ' + subject + '. Skipping.')
@@ -43,7 +46,7 @@ def process_subject(subject, bids_loader, args, proxytemplate, proxyatlas, tmp_d
 
     svf_fpath = join(uslr_mni_dir_sbj, 'sub-' + subject + svf_fname_suffix)
     def_fpath = join(uslr_mni_dir_sbj, 'sub-' + subject + def_fname_suffix)
-    outputFile = join(tmp_dir, subject + '_' + args.template + '_lin_template.nonlin.nii.gz')
+    reg_path = join(uslr_mni_dir_sbj, 'sub-' + subject + '_space-MNI_desc-nonlinTemplate_T1w.nii.gz')
 
     if not exists(svf_fpath) or not exists(def_fpath) or args.force:
         if args.template.lower() == 'SynthMorph':
@@ -146,7 +149,27 @@ def process_subject(subject, bids_loader, args, proxytemplate, proxyatlas, tmp_d
             #
             registered = fast_3D_interp_torch(torch.tensor(F), II4, JJ4, KK4, 'linear')
             img = nib.Nifti1Image(np.squeeze(registered.numpy()), R_aff)
-            nib.save(img, outputFile)
+            nib.save(img, reg_path)
+        print('done.')
+
+    elif args.save_registration:
+        print('deforming floating image; ', end='', flush=True)
+        proxy = nib.load(def_fpath)
+        RAS = np.array(proxy.dataobj)
+        RAS_X, RAS_Y, RAS_Z = RAS[..., 0], RAS[..., 1], RAS[..., 2]
+
+        F_proxy = nib.load(template)
+        F_aff = F_proxy.affine
+        F = np.array(F_proxy.dataobj)
+
+        affine = torch.tensor(np.linalg.inv(F_aff), device='cpu')
+        II4 = affine[0, 0] * RAS_X + affine[0, 1] * RAS_Y + affine[0, 2] * RAS_Z + affine[0, 3]
+        JJ4 = affine[1, 0] * RAS_X + affine[1, 1] * RAS_Y + affine[1, 2] * RAS_Z + affine[1, 3]
+        KK4 = affine[2, 0] * RAS_X + affine[2, 1] * RAS_Y + affine[2, 2] * RAS_Z + affine[2, 3]
+        #
+        registered = fast_3D_interp_torch(torch.tensor(F), II4, JJ4, KK4, 'linear')
+        img = nib.Nifti1Image(np.squeeze(registered.numpy()), proxytemplate.affine)
+        nib.save(img, reg_path)
         print('done.')
     else:
         print('[done] Deformation field already exists. Skipping.')
@@ -213,12 +236,8 @@ if __name__ == '__main__':
     tmp_dir = '/tmp/uslr-register-template'
     if not exists(tmp_dir): os.makedirs(tmp_dir)
 
-    if not args.cpu:
-        print('using CPU, hiding all CUDA_VISIBLE_DEVICES')
-        device = 'cuda:0'
-    else:
-        os.environ['CUDA_VISIBLE_DEVICES'] = ''
-        device = 'cpu'
+    os.environ['CUDA_VISIBLE_DEVICES'] = ''
+    device = 'cpu'
 
 
     print('Loading dataset ...\n')
@@ -242,11 +261,11 @@ if __name__ == '__main__':
     for it_subject, subject in enumerate(subject_list):
         print('* Subject: ' + subject + '. (' + str(it_subject) + '/' + str(len(subject_list)) + ').')
         t_init = time.time()
-        try:
-            ms = process_subject(subject, bids_loader, args, proxytemplate, proxyatlas, tmp_dir=tmp_dir)
-            print('  Total Elapsed time: ' + str(np.round(time.time() - t_init, 2)) + ' seconds.')
-        except:
-            ms = subject
+        # try:
+        ms = process_subject(subject, bids_loader, args, proxytemplate, proxyatlas, tmp_dir=tmp_dir)
+        print('  Total Elapsed time: ' + str(np.round(time.time() - t_init, 2)) + ' seconds.')
+        # except:
+        #     ms = subject
 
         if ms is not None:
             failed_subjects.append(ms)
