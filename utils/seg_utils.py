@@ -396,6 +396,8 @@ class LabelFusion(object):
         for tp in timepoints_to_run:
             t_0 = time.time()
             print('        - Timepoint ' + tp, end=': ', flush=True)
+            output_dir_tp = join(self.output_dir, 'sub-' + subject, 'ses-' + tp, 'anat')
+            if not exists(output_dir_tp): os.makedirs(output_dir_tp)
 
             proxyimage, proxyseg = nib.load(im_d[tp].path), nib.load(seg_d[tp].path)
             image = fn_utils.gaussian_smoothing_voxel_size(proxyimage, [1, 1, 1])
@@ -416,11 +418,12 @@ class LabelFusion(object):
 
             chunk_list = self.get_chunk_list(proxyimage)
             for it_chunk, chunk in enumerate(chunk_list):
-                print(str(it_chunk + 1) + '/' + str(len(chunk_list)), end='\r', flush=True)
-                # if it_chunk == len(chunk_list) - 1:
-                #     print(str(it_chunk+1) + '/' + str(len(chunk_list)), end='\r', flush=True)
-                # else:
-                #     print(str(it_chunk+1) + '/' + str(len(chunk_list)), end=', ', flush=True)
+                end_chunk = ', '
+                if it_chunk == len(chunk_list) - 1:
+                    end_chunk = '.'
+
+                print(str(it_chunk + 1) + '/' + str(len(chunk_list)), end=end_chunk, flush=True)
+
 
                 output_label = self.compute_p_label(timepoints, subject, tp, proxyimage, proxyseg, chunk, im_d, seg_d)
                 if isinstance(output_label, str):
@@ -479,10 +482,10 @@ class LabelFusion(object):
                             del true_final_vol, true_vol
 
                         vols_norm = get_vols_post(p_label, res=pixdim)
-                        vols = get_vols(fake_vol, res=pixdim, labels=list(self.labels_lut.keys()))
+                        vols = get_vols(fake_vol, res=pixdim, labels=list(self.labels_lut.values()))
                         for k, v in self.labels_lut.items():
                             st_vols_dict_norm[t_var][s_var][k] = st_vols_dict_norm[t_var][s_var][k] + vols_norm[v]
-                            st_vols_dict[t_var][s_var][k] = st_vols_dict[t_var][s_var][k] + vols[k]
+                            st_vols_dict[t_var][s_var][k] = st_vols_dict[t_var][s_var][k] + vols[v]
 
                         del p_label, fake_vol
 
@@ -508,8 +511,7 @@ class LabelFusion(object):
                     st_vols += [st_d]
 
             fieldnames = ['id', 't_var', 's_var', 'interpmethod', 'type'] + [k for k in list(self.labels_lut.keys())]
-            vols_dir = join(self.output_dir, 'sub-' + subject, 'ses-' + tp, 'anat',
-                            'sub-' + subject + '_ses-' + tp + self.vols_fname)
+            vols_dir = join(output_dir_tp, 'sub-' + subject + '_ses-' + tp + self.vols_fname)
             write_volume_results(st_vols, vols_dir, fieldnames=fieldnames, attach_overwrite='a')
 
             t_1 = time.time()
